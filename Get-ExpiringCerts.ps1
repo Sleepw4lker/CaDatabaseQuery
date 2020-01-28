@@ -1,14 +1,14 @@
 [cmdletbinding()]
 param(
-    [Parameter(Mandatory = $False)]
+    [Parameter(Mandatory = $True)]
     [ValidateNotNullOrEmpty()]
     [String[]]
-    $ConfigStrings = "ADCSCA02.corp.fabrikam.com\Fabrikam Issuing CA 1",
+    $ConfigStrings,
     
-    [Parameter(Mandatory = $False)]
+    [Parameter(Mandatory = $True)]
     [ValidateNotNullOrEmpty()]
     [String[]]
-    $CertificateTemplates = "1.3.6.1.4.1.311.21.8.14597206.1215100.14962345.448403.10782732.61.658169.11549836",
+    $CertificateTemplates,
 
     [Parameter(Mandatory = $False)]
     [ValidateRange(0,3650)]

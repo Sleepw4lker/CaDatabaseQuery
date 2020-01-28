@@ -66,7 +66,7 @@ function Add-SANCertificateExtension {
                 )
         }
         Catch {
-            Write-Warning -Message "Unable to set Extensionfor $RequestId on $ConfigString."
+            Write-Warning -Message "Unable to set Extension for $RequestId on $ConfigString."
         }
     }
 

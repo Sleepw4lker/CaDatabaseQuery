@@ -1,14 +1,14 @@
 [cmdletbinding()]
 param(
-    [Parameter(Mandatory = $False)]
+    [Parameter(Mandatory = $True)]
     [ValidateNotNullOrEmpty()]
     [String[]]
-    $ConfigStrings = "ADCSCA02.corp.fabrikam.com\Fabrikam Issuing CA 1",
+    $ConfigStrings,
     
-    [Parameter(Mandatory = $False)]
+    [Parameter(Mandatory = $True)]
     [ValidateNotNullOrEmpty()]
     [String[]]
-    $CertificateTemplates = "1.3.6.1.4.1.311.21.8.14597206.1215100.14962345.448403.10782732.61.658169.11549836"
+    $CertificateTemplates
 )
 
 begin {
@@ -40,9 +40,9 @@ process {
                 -CertificateTemplate $CertificateTemplate `
                 -Properties RequestId,Request.RequestType,Request.RawRequest | ForEach-Object -Process {
 
-                    $CurrentObject = $_
+                    $CurrentRow = $_
 
-                    switch ($CurrentObject."Request.Requesttype") {
+                    switch ($CurrentRow."Request.Requesttype") {
                         $REQUESTTYPE_PKCS7  { $RequestObject = New-Object -ComObject X509Enrollment.CX509CertificateRequestPkcs7 }
                         $REQUESTTYPE_CMC    { $RequestObject = New-Object -ComObject X509Enrollment.CX509CertificateRequestCmc }
                         default             { $RequestObject = New-Object -ComObject X509Enrollment.CX509CertificateRequestPkcs10 }
@@ -50,16 +50,16 @@ process {
 
                     Try {
                         $RequestObject.InitializeDecode(
-                            $CurrentObject."Request.RawRequest",
+                            $CurrentRow."Request.RawRequest",
                             $XCN_CRYPT_STRING_BASE64_ANY
                             )
                     }
                     Catch {
-                        Write-Warning -Message "Unable to decode Request $($CurrentObject.RequestId). Skipping."
+                        Write-Warning -Message "Unable to decode Request $($CurrentRow.RequestId). Skipping."
                         return
                     }
 
-                    switch ($CurrentObject."Request.Requesttype") {
+                    switch ($CurrentRow."Request.Requesttype") {
                         $REQUESTTYPE_PKCS7  { $Pkcs10Object = $RequestObject.GetInnerRequest(1) }
                         $REQUESTTYPE_CMC    { $Pkcs10Object = $RequestObject.GetInnerRequest(1) }
                         default             { $Pkcs10Object = $RequestObject }
@@ -67,13 +67,13 @@ process {
 
                     If (-not ($Pkcs10Object.x509extensions | Where-Object {$_.Objectid.Value -eq $szOID_SUBJECT_ALT_NAME2})) {
 
-                        Write-Verbose -Message "Request $($CurrentObject.RequestId) on $ConfigString does not have a SAN Extension."
+                        Write-Verbose -Message "Request $($CurrentRow.RequestId) on $ConfigString does not have a SAN Extension."
 
                         Try {
                             $DistinguishedName = $Pkcs10Object.Subject.Name
                         }
                         Catch {
-                            Write-Warning -Message "Request $($CurrentObject.RequestId) on $ConfigString seems to neither have a Subject nor a SAN Extension. Skipping."
+                            Write-Warning -Message "Request $($CurrentRow.RequestId) on $ConfigString seems to neither have a Subject nor a SAN Extension. Skipping."
                             return
                         }
 
@@ -82,8 +82,8 @@ process {
                 
                         If ($DistinguishedName -match $RegEx) {
                             $DnsName = $Matches[0]
-                            Write-Output "Adding DnsName SAN Extension for $DnsName to Request $($CurrentObject.RequestId) on $ConfigString."
-                            Add-SANCertificateExtension -ConfigString $ConfigString -RequestId $CurrentObject.RequestID -DnsName $DnsName
+                            Write-Output "Adding DnsName SAN Extension for $DnsName to Request $($CurrentRow.RequestId) on $ConfigString."
+                            Add-SANCertificateExtension -ConfigString $ConfigString -RequestId $CurrentRow.RequestID -DnsName $DnsName
                         }
                 
                     }
