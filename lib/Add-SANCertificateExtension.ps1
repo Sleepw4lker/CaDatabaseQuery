@@ -26,7 +26,7 @@ function Add-SANCertificateExtension {
 
         function ConvertTo-DERstring ([byte[]]$bytes) {
             $SB = New-Object System.Text.StringBuilder
-            $bytes1 = $bytes | %{"{0:X2}" -f $_}
+            $bytes1 = $bytes | ForEach-Object -Process { "{0:X2}" -f $_ }
             for ($n = 0; $n -lt $bytes1.count; $n = $n + 2) {
                 [void]$SB.Append([char](Invoke-Expression 0x$(($bytes1[$n+1]) + ($bytes1[$n]))))
             }
