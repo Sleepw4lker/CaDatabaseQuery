@@ -160,6 +160,7 @@ Function Get-CADatabaseRecord {
         $CV_OUT_BINARY = 2;
 
         Try {
+            # https://docs.microsoft.com/en-us/windows/win32/api/certview/nn-certview-icertview2
             $CaView = New-Object -ComObject CertificateAuthority.View
         }
         Catch {
@@ -266,7 +267,8 @@ Function Get-CADatabaseRecord {
         # Executing the Query
         $Row = $CaView.OpenView()
 
-        # Setting the Current Row to the first one
+        # The Reset method moves to the beginning of the row-enumeration sequence.
+        # https://docs.microsoft.com/en-us/windows/win32/api/certview/nf-certview-ienumcertviewrow-reset
         $Row.Reset()
 
         # Process all returned Rows
