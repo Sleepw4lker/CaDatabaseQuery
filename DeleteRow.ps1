@@ -34,19 +34,21 @@ process {
 
         ForEach ($CertificateTemplate in $CertificateTemplates) {
 
-            Get-CADatabaseRecord `
+            $Records = Get-CADatabaseRecord `
                 -ConfigString $ConfigString `
                 -Disposition Issued `
                 -MaxExpiryDate $(Get-Date).AddDays($NumberOfDays * -1) `
                 -CertificateTemplate $CertificateTemplate `
-                -Properties RequestId | ForEach-Object -Process {
+                -Properties RequestId
+            
+            # Temporarily saved into a variable as the process may take so long that the prior DB connection gets killed
+            $Records | ForEach-Object -Process {
 
-                    Write-Host "Deleting Row $($_.RequestId) on $($ConfigString)"
-                    [void](Remove-CADatabaseRow -ConfigString $ConfigString -RowId $_.RequestId)
+                Write-Host "Deleting Row $($_.RequestId) on $($ConfigString)"
+                [void](Remove-CADatabaseRow -ConfigString $ConfigString -RowId $_.RequestId)
 
-                }
-
-                
+            }
+       
         }
 
     }
