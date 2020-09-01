@@ -163,17 +163,14 @@ Function Get-CADatabaseRecord {
             $CaView = New-Object -ComObject CertificateAuthority.View
         }
         Catch {
-            Write-Warning -Message "Unable to create the CertificateAuthority.View Object."
-            Write-Warning -Message "Ensure you have the Certificate Authority Management Tools installed."
-            return
+            throw "Unable to create the CertificateAuthority.View Object.c Ensure you have the Certificate Authority Management Tools installed."
         }
 
         Try {
             $CaView.OpenConnection($ConfigString)
         }
         Catch {
-            Write-Warning -Message "Unable to connect to $ConfigString"
-            return
+            throw "Unable to connect to $ConfigString"
         }
 
     }
