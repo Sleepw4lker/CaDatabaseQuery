@@ -22,6 +22,19 @@ begin {
 
     New-Variable -Option Constant -Name XCN_CRYPT_STRING_BASE64 -Value 1
 
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_OTHER_NAME -Value 1
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_RFC822_NAME -Value 2
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_DNS_NAME -Value 3
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_X400_ADDRESS -Value 4
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_DIRECTORY_NAME -Value 5
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_EDI_PARTY_NAME -Value 6
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_URL -Value 7
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_IP_ADDRESS -Value 8
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_REGISTERED_ID -Value 9
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_GUID -Value 10
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_USER_PRINCIPLE_NAME -Value 11
+    New-Variable -Option Constant -Name XCN_CERT_ALT_NAME_UNKNOWN -Value 12
+
 }
 
 process {
@@ -46,12 +59,6 @@ process {
 
                         $OutputObject = $CurrentRow
 
-                        Add-Member `
-                            -InputObject $OutputObject `
-                            -MemberType NoteProperty `
-                            -Name "SubjectAltName" `
-                            -Value ""
-
                         $OutputObject
 
                     }
@@ -69,19 +76,46 @@ process {
 
                             $OutputObject = $CurrentRow
 
-                            Add-Member `
-                                -InputObject $OutputObject `
-                                -MemberType NoteProperty `
-                                -Name "SubjectAltName" `
-                                -Value $SanObject.strValue `
-                                -Force
+                            switch ($SanObject.Type) {
 
-                            $OutputObject | Select-Object -Property RequestId,Request.RequesterName,CommonName,SubjectAltName
+                                $XCN_CERT_ALT_NAME_DNS_NAME {
+                                    Add-Member `
+                                    -InputObject $OutputObject `
+                                    -MemberType NoteProperty `
+                                    -Name "DNSName" `
+                                    -Value $SanObject.strValue `
+                                    -Force
+                                }
+
+                                $XCN_CERT_ALT_NAME_IP_ADDRESS {
+
+
+                                    $b64ip = $SanObject.RawData($XCN_CRYPT_STRING_BASE64);
+
+                                    Add-Member `
+                                    -InputObject $OutputObject `
+                                    -MemberType NoteProperty `
+                                    -Name "IPAddress" `
+                                    -Value ([IPAddress] ([Convert]::FromBase64String($b64ip))) `
+                                    -Force
+                                }
+                                
+                                $XCN_CERT_ALT_NAME_USER_PRINCIPLE_NAME {
+                                    Add-Member `
+                                    -InputObject $OutputObject `
+                                    -MemberType NoteProperty `
+                                    -Name "UserPrincipalName" `
+                                    -Value $SanObject.strValue `
+                                    -Force
+                                }
+                            }
+
+                            $OutputObject
                         }   
 
                     }
             
-                }
+                } | Select-Object -Property RequestId,Request.RequesterName,CommonName,DNSName,IPAddress,UserPrincipalName
         }
     }
 }
