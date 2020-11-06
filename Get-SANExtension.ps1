@@ -62,12 +62,13 @@ process {
 
                     If (-not $SanExtension) {
 
-                        $OutputObject = $CurrentRow
-
-                        $OutputObject
+                        # directly return the Object
+                        $CurrentRow
 
                     }
                     Else {
+
+                        # Process the SANs and return these as well
 
                         # https://docs.microsoft.com/en-us/windows/win32/api/certenroll/nf-certenroll-ix509extensionalternativenames-initializedecode
                         # https://docs.microsoft.com/en-us/windows/win32/api/certenroll/ne-certenroll-encodingtype
