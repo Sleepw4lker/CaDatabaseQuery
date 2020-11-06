@@ -43,11 +43,16 @@ process {
 
         ForEach ($CertificateTemplate in $CertificateTemplates) {
 
-            Get-CADatabaseRecord `
+            # Though this may not seem to be the best solution in the first place, DB processing time is limited
+            # If we take too long, our Session gets killed.
+            # Thus we first load all into memory which allows us to process the results as long as we need
+            $DbFields = Get-CADatabaseRecord `
                 -ConfigString $ConfigString `
                 -Disposition Issued `
                 -CertificateTemplate $CertificateTemplate `
-                -Properties RequestId,Request.RequesterName,CommonName,RawCertificate | ForEach-Object -Process {
+                -Properties RequestId,SerialNumber,NotBefore,NotAfter,Request.RequesterName,CommonName,RawCertificate
+                
+            $DbFields | ForEach-Object -Process {
 
                     $CurrentRow = $_
                     $CertificateObject = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
@@ -115,7 +120,7 @@ process {
 
                     }
             
-                } | Select-Object -Property RequestId,Request.RequesterName,CommonName,DNSName,IPAddress,UserPrincipalName
+                } | Select-Object -Property CommonName,DNSName,IPAddress,UserPrincipalName,RequestId,Request.RequesterName,SerialNumber,NotBefore,NotAfter
         }
     }
 }
