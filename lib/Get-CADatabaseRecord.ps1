@@ -1,11 +1,11 @@
 Function Get-CADatabaseRecord {
 
     param(
-        [Parameter(Mandatory = $True)]
+        [Parameter(Mandatory=$True)]
         [String]
         $ConfigString,
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [ValidateSet(
             "Request.RequestID",
             "Request.RawRequest",
@@ -99,7 +99,7 @@ Function Get-CADatabaseRecord {
             "RawCertificate"
             ),
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [ValidateSet(
             "Pending",
             "Issued",
@@ -108,200 +108,285 @@ Function Get-CADatabaseRecord {
             "Denied"
         )]
         [String]
-        $Disposition,
+        $Disposition = "Issued",
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [String]
         $CertificateTemplate,
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [String]
         $CommonName,
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [String]
         $RequesterName,
 
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory=$False)]
         [Int]
         $RequestId,
 
-        [Parameter(Mandatory = $False)]
-        [datetime]
-        $MinExpiryDate = ([datetime]::Now), # default to show only time-valid Certificates
+        [Parameter(Mandatory=$False)]
+        [DateTime]
+        $MinExpiryDate,
 
-        [Parameter(Mandatory = $False)]
-        [datetime]
-        $MaxExpiryDate
-   
+        [Parameter(Mandatory=$False)]
+        [DateTime]
+        $MaxExpiryDate,
+
+        [Parameter(Mandatory=$False)]
+        [Int]
+        $PageSize = 50000,
+
+        [Parameter(Mandatory=$False)]
+        [Switch]
+        $HasArchivedKeys = $False
     )
 
     begin {
 
-        $DISPOSITION_PENDING = 9	# request is taken under submission
-        $DISPOSITION_ISSUED = 20	# certificate was issued
-        $DISPOSITION_REVOKED = 21	# certificate is revoked
-        $DISPOSITION_FAILED = 30	# certificate request failed
-        $DISPOSITION_DENIED = 31	# certificate request is denied
+        New-Variable -Option Constant -Name CVRC_COLUMN_SCHEMA -Value 0	# Schema column info
+        New-Variable -Option Constant -Name CVRC_COLUMN_RESULT -Value 1	# Result column info
+        New-Variable -Option Constant -Name CVRC_COLUMN_VALUE -Value 2	# Value column info
+        New-Variable -Option Constant -Name CVRC_COLUMN_MASK -Value 0xfff # column info mask
 
-        $CVR_SEEK_EQ = 0x1;
-        #$CVR_SEEK_LT = 0x2;
-        #$CVR_SEEK_LE = 0x4;
-        #$CVR_SEEK_GE = 0x8;
-        $CVR_SEEK_GT = 0x10;
+        New-Variable -Option Constant -Name DISPOSITION_PENDING -Value 9
+        New-Variable -Option Constant -Name DISPOSITION_ISSUED -Value 20
+        New-Variable -Option Constant -Name DISPOSITION_REVOKED -Value 21
+        New-Variable -Option Constant -Name DISPOSITION_FAILED -Value 30
+        New-Variable -Option Constant -Name DISPOSITION_DENIED -Value 31
 
-        $CVR_SORT_NONE = 0;
-        #$CVR_SORT_ASCEND = 1;
-        #$CVR_SORT_DESCEND = 2;
+        New-Variable -Option Constant -Name CVR_SEEK_EQ -Value 0x1
+        New-Variable -Option Constant -Name CVR_SEEK_LT -Value 0x2
+        New-Variable -Option Constant -Name CVR_SEEK_LE -Value 0x4
+        New-Variable -Option Constant -Name CVR_SEEK_GE -Value 0x8
+        New-Variable -Option Constant -Name CVR_SEEK_GT -Value 0x10
+
+        New-Variable -Option Constant -Name CVR_SORT_NONE -Value 0
+        New-Variable -Option Constant -Name CVR_SORT_ASCEND -Value 1
+        New-Variable -Option Constant -Name CVR_SORT_DESCEND -Value 2
 
         # https://docs.microsoft.com/en-us/windows/win32/api/certview/nf-certview-ienumcertviewextension-getvalue
-        #$CV_OUT_BASE64HEADER = 0;
-        $CV_OUT_BASE64 = 1;
-        $CV_OUT_BINARY = 2;
-
-        Try {
-            # https://docs.microsoft.com/en-us/windows/win32/api/certview/nn-certview-icertview2
-            $CaView = New-Object -ComObject CertificateAuthority.View
-        }
-        Catch {
-            throw "Unable to create the CertificateAuthority.View Object.c Ensure you have the Certificate Authority Management Tools installed."
-        }
-
-        Try {
-            $CaView.OpenConnection($ConfigString)
-        }
-        Catch {
-            throw "Unable to connect to $ConfigString"
-        }
-
+        New-Variable -Option Constant -Name CV_OUT_BASE64HEADER -Value 0
+        New-Variable -Option Constant -Name CV_OUT_BASE64 -Value 1
+        New-Variable -Option Constant -Name CV_OUT_BINARY -Value 2
     }
 
     process {
 
-        # Set the Columns to be returned
+        # Kudos to the Research made by Vadims Podans
+        # https://www.pkisolutions.com/adcs-certification-authority-database-query-numbers/
 
-        $CaView.SetResultColumnCount($Properties.Count)
+        # This restricts the Request ID to start from. We start with no restriction.
+        $LastIndex = 0
 
-        $Properties | ForEach-Object -Process {
-            $CAView.SetResultColumn(
-                $CAView.GetColumnIndex(
-                    $False,
-                    $_
-                    )
-                )
-        }
+        # We split the Request processing into separate slices to speed up Query Performance and to avoid the ERROR_INVALID_HANDLE Issue
+        do {
 
-        If ($Disposition) {
-
-            Switch ($Disposition) {
-                "Pending" {$SelectedDisposition = $DISPOSITION_PENDING}
-                "Issued"  {$SelectedDisposition = $DISPOSITION_ISSUED}
-                "Revoked" {$SelectedDisposition = $DISPOSITION_REVOKED}
-                "Failed"  {$SelectedDisposition = $DISPOSITION_FAILED}
-                "Denied"  {$SelectedDisposition = $DISPOSITION_DENIED}
-                default   {$SelectedDisposition = $DISPOSITION_ISSUED}
+            Try {
+                # https://docs.microsoft.com/en-us/windows/win32/api/certview/nn-certview-icertview
+                $CaView = New-Object -ComObject CertificateAuthority.View
+            }
+            Catch {
+                throw "Unable to create the CertificateAuthority.View Object. Ensure you have the Certificate Authority Management Tools installed."
             }
 
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "Request.Disposition"),
-                $CVR_SEEK_EQ,
-                $CVR_SORT_NONE,
-                $SelectedDisposition
-                ) 
-        }
+            Try {
+                $CaView.OpenConnection($ConfigString)
+            }
+            Catch {
+                throw "Unable to connect to $ConfigString"
+            }
 
-        If ($MinExpiryDate) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "NotAfter"),
-                $CVR_SEEK_GT,
-                $CVR_SORT_NONE,
-                $MinExpiryDate
-                )
-        }
+            Write-Verbose -Message "Starting new Database Query against $ConfigString with a Page Size of $PageSize"
 
-        If ($MaxExpiryDate) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "NotAfter"),
-                $CVR_SEEK_LT,
-                $CVR_SORT_NONE,
-                $MaxExpiryDate
-                )
-        }
+            # Set the Columns to be returned
+            # We always must include RequestId - at the moment there is no Code yet to ensure this
 
-        If ($CertificateTemplate) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "CertificateTemplate"),
-                $CVR_SEEK_EQ,
-                $CVR_SORT_NONE,
-                $CertificateTemplate
-                )
-        }
+            $CaView.SetResultColumnCount($Properties.Count)
 
-        If ($CommoName) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "CommonName"),
-                $CVR_SEEK_EQ,
-                $CVR_SORT_NONE,
-                $CommonName
-                )
-        }
+            $Properties | ForEach-Object -Process {
+                $CaView.SetResultColumn(
+                    $CaView.GetColumnIndex(
+                        $CVRC_COLUMN_SCHEMA,
+                        $_
+                        )
+                    )
+            }
 
-        If ($RequesterName) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "RequesterName"),
-                $CVR_SEEK_EQ,
-                $CVR_SORT_NONE,
-                $RequesterName
-                )
-        }
+            If ($Disposition) {
 
-        If ($RequestId) {
-            $CaView.SetRestriction(
-                $CAView.GetColumnIndex($False, "RequestId"),
-                $CVR_SEEK_EQ,
-                $CVR_SORT_NONE,
-                $RequestId
-                )
-        }
-
-        # Executing the Query
-        $Row = $CaView.OpenView()
-
-        # The Reset method moves to the beginning of the row-enumeration sequence.
-        # https://docs.microsoft.com/en-us/windows/win32/api/certview/nf-certview-ienumcertviewrow-reset
-        $Row.Reset()
-
-        # Process all returned Rows
-        while ($Row.Next() -ne -1) {
-
-            $OutputObject = New-Object -TypeName PsObject
-
-            # Enumerate the Columns of the current Row
-            $Col = $Row.EnumCertViewColumn()
-
-            # Process each Column in the current Row
-            while ($Col.Next() -ne -1) {
-
-                # Handle only the Cases where there is a different Encoding to be defined
-                switch ($Col.GetName()) {
-
-                    "Request.RawRequest"    { $ColEncoding = $CV_OUT_BASE64 }
-                    "RawCertificate"        { $ColEncoding = $CV_OUT_BASE64 }
-                    default                 { $ColEncoding = $CV_OUT_BINARY }
-                    
+                Switch ($Disposition) {
+                    "Pending" { $SelectedDisposition = $DISPOSITION_PENDING }
+                    "Issued"  { $SelectedDisposition = $DISPOSITION_ISSUED }
+                    "Revoked" { $SelectedDisposition = $DISPOSITION_REVOKED }
+                    "Failed"  { $SelectedDisposition = $DISPOSITION_FAILED }
+                    "Denied"  { $SelectedDisposition = $DISPOSITION_DENIED }
+                    default   { $SelectedDisposition = $DISPOSITION_ISSUED }
                 }
 
-                Add-Member `
-                    -InputObject $OutputObject `
-                    -MemberType NoteProperty `
-                    -Name $Col.GetName() `
-                    -Value $Col.GetValue($ColEncoding)
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "Request.Disposition"),
+                    $CVR_SEEK_EQ,
+                    $CVR_SORT_NONE,
+                    $SelectedDisposition
+                    ) 
             }
 
-            # Return the Object to the Pipe
-            $OutputObject
-        }
+            If ($MinExpiryDate) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "NotAfter"),
+                    $CVR_SEEK_GT,
+                    $CVR_SORT_NONE,
+                    $MinExpiryDate
+                    )
+            }
+
+            If ($MaxExpiryDate) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "NotAfter"),
+                    $CVR_SEEK_LT,
+                    $CVR_SORT_NONE,
+                    $MaxExpiryDate
+                    )
+            }
+
+            If ($CertificateTemplate) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "CertificateTemplate"),
+                    $CVR_SEEK_EQ,
+                    $CVR_SORT_NONE,
+                    $CertificateTemplate
+                    )
+            }
+
+            If ($CommoName) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "CommonName"),
+                    $CVR_SEEK_EQ,
+                    $CVR_SORT_NONE,
+                    $CommonName
+                    )
+            }
+
+            If ($RequesterName) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "RequesterName"),
+                    $CVR_SEEK_EQ,
+                    $CVR_SORT_NONE,
+                    $RequesterName
+                    )
+            }
+
+            If ($HasArchivedKeys.IsPresent) {
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "Request.KeyRecoveryHashes"),
+                    $CVR_SEEK_GT,
+                    $CVR_SORT_NONE,
+                    [String]::Empty
+                    )
+            }
+
+            If ($RequestId) {
+                # A single row has been requested by specifying a Request ID
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "RequestId"),
+                    $CVR_SEEK_EQ,
+                    $CVR_SORT_NONE,
+                    $RequestId
+                    )
+            }
+            Else {
+                # This ensures that Rows processed in previous Queries are skipped
+                # and that the Results are sorted ascending by the Request ID
+                $CaView.SetRestriction(
+                    $CaView.GetColumnIndex($CVRC_COLUMN_SCHEMA, "RequestId"),
+                    $CVR_SEEK_GT,
+                    $CVR_SORT_ASCEND,
+                    $LastIndex
+                    )
+            }
+
+            # Executing the Query
+            $Row = $CaView.OpenView()
+
+            # The Reset method moves to the beginning of the row-enumeration sequence.
+            # https://docs.microsoft.com/en-us/windows/win32/api/certview/nf-certview-ienumcertviewrow-reset
+            $Row.Reset()
+
+            # We remember how many Rows we have processed
+            $RowsRead = 0
+
+            # Process all returned Rows
+            while (($Row.Next() -ne -1) -and ($RowsRead -lt $PageSize)) {
+
+                $RowsRead++
+
+                $OutputObject = New-Object -TypeName PsObject
+
+                # Enumerate the Columns of the current Row
+                $Col = $Row.EnumCertViewColumn()
+
+                # Process each Column in the current Row
+                while ($Col.Next() -ne -1) {
+
+                    # Handle only the Cases where there is a different Encoding to be defined or something special to process
+                    switch ($Col.GetName()) {
+
+                        "RequestId" {
+                            $ColEncoding = $CV_OUT_BINARY
+
+                            # Remember the current RowId, it could be the last before starting over
+                            $LastIndex = $Col.GetValue($ColEncoding)
+                        }
+                        "Request.RawRequest"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "Request.RawArchivedKey"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "Request.RawOldCertificate"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "Request.RawName"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "Request.AttestationChallenge"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "RawCertificate" 
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "RawPublicKey"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "RawPublicKeyAlgorithmParameters"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        "RawName"
+                            { $ColEncoding = $CV_OUT_BASE64 }
+                        default
+                            { $ColEncoding = $CV_OUT_BINARY }
+                        
+                    }
+
+                    Add-Member `
+                        -InputObject $OutputObject `
+                        -MemberType NoteProperty `
+                        -Name $Col.GetName() `
+                        -Value $Col.GetValue($ColEncoding)
+                }
+
+                # Return the Object to the Pipeline
+                $OutputObject
+
+            }
+
+            # We destroy the Interfaces and the Connection to start over, or clean up if we are done
+            [void]([System.Runtime.Interopservices.Marshal]::ReleaseComObject($Row))
+            [void]([System.Runtime.Interopservices.Marshal]::ReleaseComObject($CaView))
+            $Row = $null
+            $CaView = $null
+            [System.GC]::Collect()
+
+            Write-Verbose -Message "Read $RowsRead Rows in this Run"
+
+        } while ($PageSize -eq $RowsRead)
 
     }
+
+    end {}
 
 }
