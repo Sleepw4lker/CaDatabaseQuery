@@ -1,6 +1,7 @@
 <#
 
     .SYNOPSIS
+    The user will need local administrator rights on die machine as well as "Issue and Manage certificates" permission on the certificattion authority (may be restricted to the specific certificate template).
 
     .Parameter ConfigString
 
@@ -43,13 +44,18 @@ param(
     [Parameter(Mandatory=$False)]
     [ValidateNotNullOrEmpty()]
     [String]
-    $PfxEncryptionKeyName = "PFXEncryptionKey"
+    $PfxEncryptionKeyName = "PFXEncryptionKey",
+
+    [Parameter(Mandatory=$False)]
+    [ValidateNotNullOrEmpty()]
+    [String]
+    $KeyStorageProvider = "Microsoft Software Key Storage Provider"
 )
 
-# Ensuring the Script will be run with Elevation
+# Ensuring the Script will be run with Elevation as the Intune encryption key is stored in the machine certificate store
 If (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Error -Message "This must be run as Administrator! Aborting."
-    Return
+    return
 }
 
 . $(Split-Path -Path $MyInvocation.MyCommand.Definition -Parent)\lib\Get-CADatabaseRecord.ps1
@@ -148,7 +154,7 @@ foreach ($CertificateTemplate in $CertificateTemplates) {
             -PathToPfxFile $ExportFileName `
             -PfxPassword $SecureFilePassword `
             -UPN $UserPrincipalName `
-            -ProviderName "Microsoft Software Key Storage Provider" `
+            -ProviderName $KeyStorageProvider `
             -KeyName $PfxEncryptionKeyName `
             -IntendedPurpose $Purpose
         
@@ -156,8 +162,8 @@ foreach ($CertificateTemplate in $CertificateTemplates) {
             Import-IntuneUserPfxCertificate -CertificateList $UserPfxObject
         }
         catch {
-            # HTTP 400 error occur in several cases
-            Write-Warning -Message "Unable to upload certificate with RequestId $($Result.RequestId) to Intune."
+            # HTTP 400 errors may occur in several cases, but sadly without any specific error information
+            Write-Warning -Message "Unable to upload certificate with RequestId $($Result.RequestId) to Intune (Bad request)."
         }
 
         Remove-Item -Path $ExportFileName -Force
